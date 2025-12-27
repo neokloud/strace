@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strace Detective - CKS Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .terminal-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .terminal-container::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        .terminal-container::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        .hidden { display: none; }
+        .evidence-line {
+            background-color: rgba(30, 58, 138, 0.4) !important;
+            border-left: 2px solid #3b82f6 !important;
+        }
+    </style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <header class="flex items-center justify-between mb-8 border-b border-slate-700 pb-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2 rounded-lg">
+                    <i class="fas fa-shield-halved text-white text-xl"></i>
+                </div>
+                <h1 class="text-2xl font-bold tracking-tight">Strace Detective <span class="text-blue-400">CKS Edition</span></h1>
+            </div>
+            <div class="text-xs font-mono bg-slate-800 px-3 py-1 rounded border border-slate-700 text-slate-400">
+                SEC_LEVEL: 04 // KERNEL_OBSERVER
+            </div>
+        </header>
+
+        <!-- Screen 1: Intro -->
+        <div id="screen-intro" class="bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl">
+            <h2 class="text-3xl font-bold mb-4 text-white">The "Call Log" Story</h2>
+            <div class="grid md:grid-cols-2 gap-8 items-center">
+                <div class="space-y-4 text-slate-300 leading-relaxed">
+                    <p>In the Linux world, commands can lie. A binary might tell you it's just "printing info," but deep down, it's whispering secrets to the kernel.</p>
+                    <div class="bg-slate-900/50 p-4 rounded-lg border-l-4 border-blue-500 italic">
+                        "If you don’t trust a process, don’t ask it — <span class="text-blue-400 font-bold">strace</span> it."
+                    </div>
+                    <p><span class="text-blue-400 font-semibold">strace</span> is your investigative tool. It shows you every <strong>System Call</strong> (syscall)—the "call log" between the application and the Linux Kernel.</p>
+                    <button onclick="showScreen('tutorial')" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold transition-all flex items-center gap-2 group">
+                        Start Investigation <i class="fas fa-play group-hover:translate-x-1 transition-transform"></i>
+                    </button>
+                </div>
+                <div class="bg-slate-900 p-6 rounded-xl border border-slate-700 flex flex-col items-center">
+                    <i class="fas fa-mobile-screen text-blue-400 text-5xl mb-4"></i>
+                    <div class="w-full space-y-2">
+                        <div class="text-xs text-slate-500 uppercase font-bold tracking-wider">Call Log (strace)</div>
+                        <div class="bg-slate-800 p-2 rounded text-xs font-mono text-green-400 border border-green-900/30">open("/etc/shadow") ...</div>
+                        <div class="bg-slate-800 p-2 rounded text-xs font-mono text-red-400 border border-red-900/30">connect(unknown_ip) ...</div>
+                        <div class="bg-slate-800 p-2 rounded text-xs font-mono text-blue-400 border border-blue-900/30">execve("/bin/sh") ...</div>
+                    </div>
+                    <p class="mt-4 text-sm text-slate-400 text-center italic">The call log never lies.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 2: Tutorial -->
+        <div id="screen-tutorial" class="hidden bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl">
+            <h2 class="text-2xl font-bold mb-6 flex items-center gap-2">
+                <i class="fas fa-circle-info text-blue-400"></i> Quick Briefing
+            </h2>
+            <div class="grid md:grid-cols-3 gap-4 mb-8">
+                <div class="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                    <h3 class="font-bold text-blue-400 mb-2 mono">open / openat</h3>
+                    <p class="text-sm text-slate-400 italic">The "I touched a file" log.</p>
+                    <p class="text-xs mt-2 text-slate-500">Suspicious if touching /etc/shadow or /root keys.</p>
+                </div>
+                <div class="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                    <h3 class="font-bold text-green-400 mb-2 mono">connect / socket</h3>
+                    <p class="text-sm text-slate-400 italic">The "I called someone" log.</p>
+                    <p class="text-xs mt-2 text-slate-500">Suspicious for simple apps that shouldn't need internet.</p>
+                </div>
+                <div class="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                    <h3 class="font-bold text-red-400 mb-2 mono">execve</h3>
+                    <p class="text-sm text-slate-400 italic">The "I started a program" log.</p>
+                    <p class="text-xs mt-2 text-slate-500">Suspicious if an app starts a shell (/bin/sh) unexpectedly.</p>
+                </div>
+            </div>
+            <button onclick="startLevel(0)" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-bold transition-all text-xl shadow-lg">
+                Enter the Field
+            </button>
+        </div>
+
+        <!-- Screen 3: Game Level -->
+        <div id="screen-level" class="hidden space-y-6">
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span id="case-id" class="text-xs font-bold text-blue-400 uppercase tracking-widest">Case #1</span>
+                        <h2 id="case-name" class="text-2xl font-bold">The Innocent Witness</h2>
+                    </div>
+                    <div id="case-command" class="bg-slate-900 px-3 py-1 rounded text-sm font-mono border border-slate-700 text-slate-400">
+                        Target: uname
+                    </div>
+                </div>
+                <p id="case-description" class="text-slate-300 mb-6 flex items-center gap-2">
+                    <i class="fas fa-magnifying-glass text-blue-400"></i> The command says: 'I just printed system info.' Verify its story.
+                </p>
+                
+                <button id="btn-run-strace" onclick="runStrace()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold transition-all flex items-center gap-2">
+                    <i class="fas fa-terminal"></i> strace <span id="btn-cmd-label">uname</span>
+                </button>
+            </div>
+
+            <!-- Terminal View -->
+            <div class="bg-black rounded-xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col min-h-[400px]">
+                <div class="bg-slate-900 px-4 py-2 border-b border-slate-800 flex items-center gap-2">
+                    <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                    <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                    <span id="terminal-header-cmd" class="text-xs text-slate-500 ml-4 mono italic">root@cks-node:~# </span>
+                </div>
+                
+                <div id="terminal-body" class="p-4 mono text-sm overflow-y-auto flex-1 space-y-1 terminal-container">
+                    <!-- Syscalls go here -->
+                </div>
+            </div>
+
+            <!-- Analysis UI -->
+            <div id="analysis-panel" class="hidden bg-slate-800 p-6 rounded-xl border border-slate-700 animate-in fade-in duration-500">
+                <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+                    <i class="fas fa-search text-blue-400"></i> Analysis Report
+                </h3>
+                <div id="finding-counter" class="text-xs mb-4 text-blue-300 font-mono">Selected Evidence: 0</div>
+                <p class="text-sm text-slate-400 mb-6">
+                    Select any suspicious syscalls in the terminal above (click them), then make your verdict.
+                </p>
+                <div class="flex gap-4">
+                    <button onclick="verifyAnalysis(false)" class="flex-1 bg-slate-700 hover:bg-green-900/30 border border-slate-600 py-4 rounded-xl font-bold transition-all flex flex-col items-center gap-2">
+                        <i class="fas fa-circle-check text-green-400 text-xl"></i>
+                        Clean & Honest
+                    </button>
+                    <button onclick="verifyAnalysis(true)" class="flex-1 bg-slate-700 hover:bg-red-900/30 border border-slate-600 py-4 rounded-xl font-bold transition-all flex flex-col items-center gap-2">
+                        <i class="fas fa-triangle-exclamation text-red-400 text-xl"></i>
+                        Malicious Intent
+                    </button>
+                </div>
+            </div>
+
+            <!-- Feedback -->
+            <div id="feedback-panel" class="hidden p-6 rounded-xl border-2 animate-in zoom-in duration-300">
+                <div class="flex items-start gap-4">
+                    <i id="feedback-icon" class="text-3xl shrink-0"></i>
+                    <div>
+                        <h3 id="feedback-title" class="text-xl font-bold mb-2">Case Solved!</h3>
+                        <p id="feedback-msg" class="text-slate-200 mb-4 leading-relaxed"></p>
+                        <button id="btn-feedback-action" class="px-6 py-2 rounded-lg font-bold text-white"></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Screen 4: Summary -->
+        <div id="screen-summary" class="hidden bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl text-center">
+            <div class="bg-blue-600 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-500/20">
+                <i class="fas fa-shield text-white text-4xl"></i>
+            </div>
+            <h2 class="text-3xl font-bold mb-4">Certified Observer</h2>
+            <p class="text-slate-300 max-w-lg mx-auto mb-8">
+                You've mastered the art of the "Call Log." You now understand that while an application can lie in its UI, its syscalls to the kernel never lie.
+            </p>
+            
+            <div class="grid md:grid-cols-3 gap-4 mb-8 text-left">
+                <div class="bg-slate-900 p-4 rounded-lg border-l-4 border-blue-500">
+                    <p class="text-xs text-slate-500 font-bold uppercase">Lesson 1</p>
+                    <p class="text-sm font-semibold">Commands can lie; Output can be faked.</p>
+                </div>
+                <div class="bg-slate-900 p-4 rounded-lg border-l-4 border-green-500">
+                    <p class="text-xs text-slate-500 font-bold uppercase">Lesson 2</p>
+                    <p class="text-sm font-semibold">System Calls are the ultimate truth.</p>
+                </div>
+                <div class="bg-slate-900 p-4 rounded-lg border-l-4 border-purple-500">
+                    <p class="text-xs text-slate-500 font-bold uppercase">Lesson 3</p>
+                    <p class="text-sm font-semibold">Strace is your first line of investigation.</p>
+                </div>
+            </div>
+
+            <button onclick="showScreen('intro')" class="text-blue-400 hover:text-blue-300 font-bold transition-colors underline">
+                Restart Simulation
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const levels = [
+            {
+                id: 1,
+                name: "The Innocent Witness",
+                command: "uname",
+                description: "The command says: 'I just printed system info.' Verify its story.",
+                syscalls: [
+                    "execve(\"/usr/bin/uname\", [\"uname\"], 0x7ffd...) = 0",
+                    "brk(NULL) = 0x55d642031000",
+                    "arch_prctl(0x3001 /* ARCH_SET_FS */, 0x7f43...) = 0",
+                    "uname({sysname=\"Linux\", nodename=\"cks-node\", ...}) = 0",
+                    "fstat(1, {st_mode=S_IFCHR|0620, st_size=0, ...}) = 0",
+                    "write(1, \"Linux\\n\", 6) = 6",
+                    "exit_group(0) = ?"
+                ],
+                malicious: false,
+                correctFindings: [],
+                explanation: "This is a clean call log. It only uses uname() to get info and write() to print it. No files were opened, no networks touched."
+            },
+            {
+                id: 2,
+                name: "The Shadow Crawler",
+                command: "./backup_tool",
+                description: "A 'backup tool' that claims to only read public documents. Check its file access.",
+                syscalls: [
+                    "execve(\"./backup_tool\", [\"./backup_tool\"], 0x7ffe...) = 0",
+                    "openat(AT_FDCWD, \"/etc/shadow\", O_RDONLY) = 3",
+                    "read(3, \"root:$6$rounds=40000$...\", 4096) = 1240",
+                    "close(3) = 0",
+                    "write(1, \"Backup complete!\\n\", 17) = 17",
+                    "exit_group(0) = ?"
+                ],
+                malicious: true,
+                correctFindings: ["openat(AT_FDCWD, \"/etc/shadow\", O_RDONLY) = 3"],
+                explanation: "Caught! The tool opened /etc/shadow, which contains sensitive password hashes. Backup tools should not be touching that!"
+            },
+            {
+                id: 3,
+                name: "The 2 AM Phone Call",
+                command: "./calc_app",
+                description: "A simple calculator app. Why does it need internet permissions?",
+                syscalls: [
+                    "execve(\"./calc_app\", [\"./calc_app\"], 0x7ffc...) = 0",
+                    "socket(AF_INET, SOCK_STREAM, IPPROTO_IP) = 3",
+                    "connect(3, {sa_family=AF_INET, sin_port=htons(4444), sin_addr=inet_addr(\"192.168.1.50\")}, 16) = 0",
+                    "write(3, \"Sending system data...\", 22) = 22",
+                    "write(1, \"2 + 2 = 4\\n\", 10) = 10",
+                    "exit_group(0) = ?"
+                ],
+                malicious: true,
+                correctFindings: ["connect(3, {sa_family=AF_INET, sin_port=htons(4444), sin_addr=inet_addr(\"192.168.1.50\")}, 16) = 0"],
+                explanation: "A calculator making a network connection to an internal IP at port 4444? That's a classic reverse shell or data exfiltration."
+            }
+        ];
+
+        let currentLevelIdx = 0;
+        let selectedFindings = [];
+        let isTracing = false;
+        let analysisMode = false;
+
+        function showScreen(screenId) {
+            document.querySelectorAll('[id^="screen-"]').forEach(s => s.classList.add('hidden'));
+            document.getElementById(`screen-${screenId}`).classList.remove('hidden');
+        }
+
+        function startLevel(idx) {
+            currentLevelIdx = idx;
+            const level = levels[idx];
+            
+            document.getElementById('case-id').innerText = `Case #${level.id}`;
+            document.getElementById('case-name').innerText = level.name;
+            document.getElementById('case-command').innerText = `Target: ${level.command}`;
+            document.getElementById('case-description').innerText = level.description;
+            document.getElementById('btn-cmd-label').innerText = level.command;
+            document.getElementById('terminal-header-cmd').innerText = `root@cks-node:~# strace ${level.command}`;
+            
+            document.getElementById('terminal-body').innerHTML = '';
+            document.getElementById('btn-run-strace').classList.remove('hidden');
+            document.getElementById('analysis-panel').classList.add('hidden');
+            document.getElementById('feedback-panel').classList.add('hidden');
+            document.getElementById('finding-counter').innerText = 'Selected Evidence: 0';
+            
+            selectedFindings = [];
+            analysisMode = false;
+            isTracing = false;
+            
+            showScreen('level');
+        }
+
+        function runStrace() {
+            if (isTracing) return;
+            isTracing = true;
+            document.getElementById('btn-run-strace').classList.add('hidden');
+            
+            const level = levels[currentLevelIdx];
+            const terminalBody = document.getElementById('terminal-body');
+            let i = 0;
+
+            const interval = setInterval(() => {
+                if (i < level.syscalls.length) {
+                    const line = document.createElement('div');
+                    line.className = 'pl-2 py-0.5 border-l-2 border-transparent transition-all cursor-default';
+                    line.innerHTML = `<span class="text-slate-600 mr-2">[${i+1}]</span> <span class="content-span">${level.syscalls[i]}</span>`;
+                    line.dataset.content = level.syscalls[i];
+                    
+                    line.onclick = () => {
+                        if (analysisMode) {
+                            line.classList.toggle('evidence-line');
+                            const content = line.dataset.content;
+                            if (selectedFindings.includes(content)) {
+                                selectedFindings = selectedFindings.filter(f => f !== content);
+                            } else {
+                                selectedFindings.push(content);
+                            }
+                            document.getElementById('finding-counter').innerText = `Selected Evidence: ${selectedFindings.length}`;
+                        }
+                    };
+
+                    terminalBody.appendChild(line);
+                    terminalBody.scrollTop = terminalBody.scrollHeight;
+                    i++;
+                } else {
+                    clearInterval(interval);
+                    isTracing = false;
+                    enableAnalysis();
+                }
+            }, 400);
+        }
+
+        function enableAnalysis() {
+            analysisMode = true;
+            document.getElementById('analysis-panel').classList.remove('hidden');
+            document.querySelectorAll('#terminal-body > div').forEach(div => {
+                div.classList.add('hover:bg-slate-800', 'cursor-pointer');
+            });
+            const exitMsg = document.createElement('div');
+            exitMsg.className = 'mt-4 text-slate-500 italic pl-2';
+            exitMsg.innerText = '+++ exited with 0 +++';
+            document.getElementById('terminal-body').appendChild(exitMsg);
+        }
+
+        function verifyAnalysis(isMaliciousGuess) {
+            const level = levels[currentLevelIdx];
+            
+            // Core Logic Fix: Check if guess matches reality
+            const correctVerdict = (level.malicious === isMaliciousGuess);
+            
+            // Check if all required evidence was selected
+            let foundEvidence = true;
+            if (level.malicious) {
+                // For malicious cases, user MUST select the specific evil lines
+                foundEvidence = level.correctFindings.every(cf => selectedFindings.includes(cf));
+            } else {
+                // For clean cases, user should NOT select anything as "suspicious"
+                foundEvidence = (selectedFindings.length === 0);
+            }
+
+            const feedbackPanel = document.getElementById('feedback-panel');
+            const feedbackIcon = document.getElementById('feedback-icon');
+            const feedbackTitle = document.getElementById('feedback-title');
+            const feedbackMsg = document.getElementById('feedback-msg');
+            const feedbackBtn = document.getElementById('btn-feedback-action');
+
+            feedbackPanel.classList.remove('hidden');
+            document.getElementById('analysis-panel').classList.add('hidden');
+
+            if (correctVerdict && foundEvidence) {
+                feedbackPanel.className = 'p-6 rounded-xl border-2 bg-green-900/20 border-green-500 animate-in zoom-in duration-300 flex items-start gap-4';
+                feedbackIcon.className = 'fas fa-circle-check text-green-500 text-3xl shrink-0';
+                feedbackTitle.innerText = 'Case Solved!';
+                feedbackMsg.innerText = `Excellent Detective Work! ${level.explanation}`;
+                feedbackBtn.className = 'px-6 py-2 rounded-lg font-bold bg-green-600 hover:bg-green-700 text-white transition-colors';
+                feedbackBtn.innerText = currentLevelIdx < levels.length - 1 ? 'Next Case' : 'Finish Investigation';
+                feedbackBtn.onclick = nextLevel;
+            } else {
+                feedbackPanel.className = 'p-6 rounded-xl border-2 bg-red-900/20 border-red-500 animate-in zoom-in duration-300 flex items-start gap-4';
+                feedbackIcon.className = 'fas fa-triangle-exclamation text-red-500 text-3xl shrink-0';
+                feedbackTitle.innerText = 'Inquiry Failed';
+                
+                if (!correctVerdict) {
+                    feedbackMsg.innerText = isMaliciousGuess 
+                        ? "You're being too paranoid! This command was actually honest and didn't perform any illegal syscalls." 
+                        : "You missed the danger! This program performed sensitive operations behind the scenes.";
+                } else {
+                    feedbackMsg.innerText = level.malicious 
+                        ? "You correctly identified it as malicious, but you didn't point out the specific syscall evidence in the terminal!"
+                        : "This command is clean, but you marked some normal syscalls as suspicious.";
+                }
+
+                feedbackBtn.className = 'px-6 py-2 rounded-lg font-bold bg-red-600 hover:bg-red-700 text-white transition-colors';
+                feedbackBtn.innerText = 'Try Again';
+                feedbackBtn.onclick = () => startLevel(currentLevelIdx);
+            }
+        }
+
+        function nextLevel() {
+            if (currentLevelIdx < levels.length - 1) {
+                startLevel(currentLevelIdx + 1);
+            } else {
+                showScreen('summary');
+            }
+        }
+
+        window.onload = () => showScreen('intro');
+    </script>
+</body>
+</html>
